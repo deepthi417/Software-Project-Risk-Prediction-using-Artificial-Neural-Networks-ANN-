@@ -1,8 +1,22 @@
+"""
+Streamlit App: Software Project Risk Prediction (ANN)
+-------------------------------------------------------
+Loads the trained ANN (model.keras) and the fitted preprocessing
+pipeline (preprocessor.pkl) to predict whether a software requirement
+carries Low or High risk.
+
+Run locally:
+    streamlit run app.py
+
+Deploy on Streamlit Cloud:
+    Push this repo (app.py, requirements.txt, model.keras, preprocessor.pkl)
+    to GitHub, then connect the repo at https://share.streamlit.io
+"""
+
 import pickle
 import numpy as np
 import pandas as pd
 import streamlit as st
-from tensorflow import keras
 
 # ---------------------------------------------------------------------
 # Page config
@@ -14,16 +28,33 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------
-# Load model + preprocessor (cached so it only loads once)
+# Load preprocessor + trained ANN weights (cached so it only loads once)
+#
+# NOTE: inference is done with plain NumPy instead of TensorFlow/Keras.
+# The network is a simple 2-layer sigmoid feed-forward net, so its
+# forward pass is just two matrix multiplications + sigmoid -- no need
+# to ship the full TensorFlow runtime just to run predictions. This
+# avoids TensorFlow install issues on constrained deployment platforms
+# (e.g. Streamlit Community Cloud's free tier).
 # ---------------------------------------------------------------------
 @st.cache_resource
 def load_artifacts():
-    model = keras.models.load_model("model.keras")
     with open("preprocessor.pkl", "rb") as f:
         preprocessor = pickle.load(f)
-    return model, preprocessor
+    weights = np.load("ann_weights.npz")
+    W1, b1, W2, b2 = weights["W1"], weights["b1"], weights["W2"], weights["b2"]
+    return preprocessor, W1, b1, W2, b2
 
-model, preprocessor = load_artifacts()
+preprocessor, W1, b1, W2, b2 = load_artifacts()
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+
+def ann_predict(X):
+    """Forward pass through the trained ANN: 8 sigmoid hidden neurons -> 1 sigmoid output."""
+    hidden = sigmoid(X @ W1 + b1)
+    output = sigmoid(hidden @ W2 + b2)
+    return output.ravel()
 
 # ---------------------------------------------------------------------
 # Dropdown option lists (from the training dataset's categories)
@@ -118,7 +149,7 @@ if st.button("Predict Risk", type="primary", use_container_width=True):
     if hasattr(X_transformed, "toarray"):
         X_transformed = X_transformed.toarray()
 
-    prob_high_risk = float(model.predict(X_transformed, verbose=0).ravel()[0])
+    prob_high_risk = float(ann_predict(X_transformed)[0])
     predicted_label = "High Risk" if prob_high_risk >= 0.5 else "Low Risk"
     confidence = prob_high_risk if predicted_label == "High Risk" else 1 - prob_high_risk
 
