@@ -1,18 +1,3 @@
-"""
-Streamlit App: Software Project Risk Prediction (ANN)
--------------------------------------------------------
-Loads the trained ANN (model.keras) and the fitted preprocessing
-pipeline (preprocessor.pkl) to predict whether a software requirement
-carries Low or High risk.
-
-Run locally:
-    streamlit run app.py
-
-Deploy on Streamlit Cloud:
-    Push this repo (app.py, requirements.txt, model.keras, preprocessor.pkl)
-    to GitHub, then connect the repo at https://share.streamlit.io
-"""
-
 import pickle
 import numpy as np
 import pandas as pd
