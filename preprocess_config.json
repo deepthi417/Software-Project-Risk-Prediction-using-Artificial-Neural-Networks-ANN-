@@ -1,0 +1,107 @@
+{
+  "num_cols": [
+    "Probability",
+    "Afftecting No of Modules",
+    "Fixing Duration (Days)",
+    "Fix Cost (\\% of Project)",
+    "Priority"
+  ],
+  "cat_cols": [
+    "project Category",
+    "Requirement Category",
+    "Risk Target Category",
+    "Magnitude of Risk",
+    "Impact",
+    "Dimension of Risk"
+  ],
+  "num_medians": [
+    34.0,
+    3.0,
+    5.0,
+    1.0,
+    37.515385
+  ],
+  "num_means": [
+    40.010471204188484,
+    3.0837696335078535,
+    4.69109947643979,
+    1.4240837696335078,
+    41.825654434554984
+  ],
+  "num_scales": [
+    22.269409330392296,
+    1.7792575748361752,
+    2.5487650937647124,
+    1.6668137687154816,
+    17.848556920686047
+  ],
+  "cat_categories": {
+    "project Category": [
+      "Enterprise System",
+      "Management Information System",
+      "Safety Critical System",
+      "Transaction Processing System"
+    ],
+    "Requirement Category": [
+      "Constraints",
+      "Functional",
+      "Interfaces",
+      "Performance",
+      "Reliability & Availability",
+      "Safety",
+      "Security",
+      "Standards",
+      "Supportability",
+      "Usability"
+    ],
+    "Risk Target Category": [
+      "Budget",
+      "Business",
+      "Cost",
+      "Design",
+      "Functionalvalidity",
+      "Organizational Environment",
+      "People",
+      "Performance",
+      "Personal",
+      "Planning & Control",
+      "Project Complexity",
+      "Quality",
+      "Requirement",
+      "Resource Availability",
+      "Schedule",
+      "Software",
+      "Team",
+      "Time Dimension",
+      "Unrealistic Requirements",
+      "User"
+    ],
+    "Magnitude of Risk": [
+      "High",
+      "Low",
+      "Medium",
+      "Negligible",
+      "Very High",
+      "Very Low"
+    ],
+    "Impact": [
+      "Catastrophic",
+      "High",
+      "Insignificant",
+      "Low",
+      "Moderate"
+    ],
+    "Dimension of Risk": [
+      "Cost",
+      "Estimations",
+      "Organizational Requirements",
+      "Planning And Control",
+      "Project Complexity",
+      "Requirements",
+      "Schedule",
+      "Software Requirement",
+      "Team",
+      "User"
+    ]
+  }
+}
