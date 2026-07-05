@@ -1,21 +1,27 @@
 """
 Streamlit App: Software Project Risk Prediction (ANN)
 -------------------------------------------------------
-Loads the trained ANN (model.keras) and the fitted preprocessing
-pipeline (preprocessor.pkl) to predict whether a software requirement
-carries Low or High risk.
+Predicts whether a software requirement carries Low or High risk.
+
+This app has ZERO scikit-learn / TensorFlow / pickle dependency at
+inference time -- both preprocessing (scaling + one-hot encoding) and
+the ANN forward pass are implemented in plain NumPy, using parameters
+extracted from the trained pipeline (see preprocess_config.json and
+ann_weights.npz). This keeps deployment lightweight and avoids version
+-compatibility failures (pickle / TensorFlow install issues) on
+constrained platforms like Streamlit Community Cloud's free tier.
 
 Run locally:
     streamlit run app.py
 
 Deploy on Streamlit Cloud:
-    Push this repo (app.py, requirements.txt, model.keras, preprocessor.pkl)
-    to GitHub, then connect the repo at https://share.streamlit.io
+    Push this repo (app.py, requirements.txt, ann_weights.npz,
+    preprocess_config.json) to GitHub, then connect the repo at
+    https://share.streamlit.io
 """
 
-import pickle
+import json
 import numpy as np
-import pandas as pd
 import streamlit as st
 
 # ---------------------------------------------------------------------
@@ -28,69 +34,73 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------
-# Load preprocessor + trained ANN weights (cached so it only loads once)
-#
-# NOTE: inference is done with plain NumPy instead of TensorFlow/Keras.
-# The network is a simple 2-layer sigmoid feed-forward net, so its
-# forward pass is just two matrix multiplications + sigmoid -- no need
-# to ship the full TensorFlow runtime just to run predictions. This
-# avoids TensorFlow install issues on constrained deployment platforms
-# (e.g. Streamlit Community Cloud's free tier).
+# Load ANN weights + preprocessing config (cached so it loads once)
 # ---------------------------------------------------------------------
 @st.cache_resource
 def load_artifacts():
-    with open("preprocessor.pkl", "rb") as f:
-        preprocessor = pickle.load(f)
     weights = np.load("ann_weights.npz")
     W1, b1, W2, b2 = weights["W1"], weights["b1"], weights["W2"], weights["b2"]
-    return preprocessor, W1, b1, W2, b2
+    with open("preprocess_config.json") as f:
+        config = json.load(f)
+    return W1, b1, W2, b2, config
 
-preprocessor, W1, b1, W2, b2 = load_artifacts()
+W1, b1, W2, b2, config = load_artifacts()
+
+NUM_COLS = config["num_cols"]
+CAT_COLS = config["cat_cols"]
+NUM_MEDIANS = np.array(config["num_medians"])
+NUM_MEANS = np.array(config["num_means"])
+NUM_SCALES = np.array(config["num_scales"])
+CAT_CATEGORIES = config["cat_categories"]  # dict: col -> list of categories
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 def ann_predict(X):
-    """Forward pass through the trained ANN: 8 sigmoid hidden neurons -> 1 sigmoid output."""
+    """Forward pass: 8 sigmoid hidden neurons -> 1 sigmoid output."""
     hidden = sigmoid(X @ W1 + b1)
     output = sigmoid(hidden @ W2 + b2)
     return output.ravel()
 
+def preprocess(input_row: dict) -> np.ndarray:
+    """
+    Reproduces the training-time ColumnTransformer manually:
+      1. Numeric columns: median-impute (n/a here, all fields filled by UI),
+         then standard-scale using the training mean/scale.
+      2. Categorical columns: one-hot encode using the training category
+         order (unseen categories are simply all-zero, matching
+         OneHotEncoder(handle_unknown="ignore")).
+    Column order matches training: numeric block first, then categorical
+    block, in the same column order used when the ColumnTransformer was fit.
+    """
+    # --- numeric block ---
+    num_values = np.array([
+        input_row[col] if input_row[col] is not None else median
+        for col, median in zip(NUM_COLS, NUM_MEDIANS)
+    ], dtype=float)
+    num_scaled = (num_values - NUM_MEANS) / NUM_SCALES
+
+    # --- categorical block (one-hot) ---
+    cat_encoded = []
+    for col in CAT_COLS:
+        categories = CAT_CATEGORIES[col]
+        value = input_row[col]
+        one_hot = [1.0 if value == cat else 0.0 for cat in categories]
+        cat_encoded.extend(one_hot)
+
+    full_vector = np.concatenate([num_scaled, np.array(cat_encoded)])
+    return full_vector.reshape(1, -1)
+
 # ---------------------------------------------------------------------
-# Dropdown option lists (from the training dataset's categories)
+# Dropdown option lists (pulled directly from the training config,
+# so they always match what the model was actually trained on)
 # ---------------------------------------------------------------------
-PROJECT_CATEGORY_OPTIONS = [
-    "Enterprise System", "Management Information System",
-    "Safety Critical System", "Transaction Processing System",
-]
-
-REQUIREMENT_CATEGORY_OPTIONS = [
-    "Constraints", "Functional", "Interfaces", "Performance",
-    "Reliability & Availability", "Safety", "Security",
-    "Standards", "Supportability", "Usability",
-]
-
-RISK_TARGET_CATEGORY_OPTIONS = [
-    "Budget", "Business", "Cost", "Design", "Functionalvalidity",
-    "Organizational Environment", "Overdrawn Budget", "People",
-    "Performance", "Personal", "Planning & Control", "Process",
-    "Project Complexity", "Quality", "Requirement",
-    "Resource Availability", "Schedule", "Software", "Team",
-    "Time Dimension", "Unrealistic Requirements", "User",
-]
-
-MAGNITUDE_OPTIONS = [
-    "Negligible", "Very Low", "Low", "Medium", "High", "Very High", "Extreme",
-]
-
-IMPACT_OPTIONS = ["Insignificant", "Low", "Moderate", "High", "Catastrophic"]
-
-DIMENSION_OPTIONS = [
-    "Cost", "Estimations", "Organizational Environment",
-    "Organizational Requirements", "Planning And Control",
-    "Project Complexity", "Requirements", "Schedule",
-    "Software Requirement", "Team", "User",
-]
+PROJECT_CATEGORY_OPTIONS = CAT_CATEGORIES["project Category"]
+REQUIREMENT_CATEGORY_OPTIONS = CAT_CATEGORIES["Requirement Category"]
+RISK_TARGET_CATEGORY_OPTIONS = CAT_CATEGORIES["Risk Target Category"]
+MAGNITUDE_OPTIONS = CAT_CATEGORIES["Magnitude of Risk"]
+IMPACT_OPTIONS = CAT_CATEGORIES["Impact"]
+DIMENSION_OPTIONS = CAT_CATEGORIES["Dimension of Risk"]
 
 # ---------------------------------------------------------------------
 # UI
@@ -130,8 +140,7 @@ priority = st.slider("Priority", 1, 100, 42)
 st.divider()
 
 if st.button("Predict Risk", type="primary", use_container_width=True):
-    # Build a single-row dataframe matching the training feature columns
-    input_df = pd.DataFrame([{
+    input_row = {
         "project Category": project_category,
         "Requirement Category": requirement_category,
         "Risk Target Category": risk_target_category,
@@ -143,13 +152,10 @@ if st.button("Predict Risk", type="primary", use_container_width=True):
         "Fixing Duration (Days)": fixing_duration,
         "Fix Cost (\\% of Project)": fix_cost,
         "Priority": priority,
-    }])
+    }
 
-    X_transformed = preprocessor.transform(input_df)
-    if hasattr(X_transformed, "toarray"):
-        X_transformed = X_transformed.toarray()
-
-    prob_high_risk = float(ann_predict(X_transformed)[0])
+    X = preprocess(input_row)
+    prob_high_risk = float(ann_predict(X)[0])
     predicted_label = "High Risk" if prob_high_risk >= 0.5 else "Low Risk"
     confidence = prob_high_risk if predicted_label == "High Risk" else 1 - prob_high_risk
 
@@ -164,7 +170,7 @@ if st.button("Predict Risk", type="primary", use_container_width=True):
 
 st.divider()
 st.caption(
-    "Model: Feed-forward ANN · 64 input features · 8 sigmoid hidden neurons · "
+    "Model: Feed-forward ANN · 60 input features · 8 sigmoid hidden neurons · "
     "1 sigmoid output · SGD (lr=0.6) · Trained on the Software Requirement "
     "Risk Prediction Dataset (Shaukat, Naseem & Zubair, 2018)."
 )
