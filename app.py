@@ -1,25 +1,3 @@
-"""
-Streamlit App: Software Project Risk Prediction (ANN)
--------------------------------------------------------
-Predicts whether a software requirement carries Low or High risk.
-
-This app has ZERO scikit-learn / TensorFlow / pickle dependency at
-inference time -- both preprocessing (scaling + one-hot encoding) and
-the ANN forward pass are implemented in plain NumPy, using parameters
-extracted from the trained pipeline (see preprocess_config.json and
-ann_weights.npz). This keeps deployment lightweight and avoids version
--compatibility failures (pickle / TensorFlow install issues) on
-constrained platforms like Streamlit Community Cloud's free tier.
-
-Run locally:
-    streamlit run app.py
-
-Deploy on Streamlit Cloud:
-    Push this repo (app.py, requirements.txt, ann_weights.npz,
-    preprocess_config.json) to GitHub, then connect the repo at
-    https://share.streamlit.io
-"""
-
 import json
 import numpy as np
 import streamlit as st
@@ -30,7 +8,7 @@ import streamlit as st
 st.set_page_config(
     page_title="Software Project Risk Predictor",
     page_icon="⚠️",
-    layout="centered",
+    layout="wide",
 )
 
 # ---------------------------------------------------------------------
@@ -112,34 +90,40 @@ st.write(
     "(8 sigmoid hidden neurons, 1 sigmoid output, trained with SGD)."
 )
 
-st.divider()
-st.subheader("Enter Requirement Details")
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-col1, col2 = st.columns(2)
+left, right = st.columns([1.3, 1], gap="large")
 
-with col1:
-    project_category = st.selectbox("Project Category", PROJECT_CATEGORY_OPTIONS)
-    requirement_category = st.selectbox("Requirement Category", REQUIREMENT_CATEGORY_OPTIONS)
-    risk_target_category = st.selectbox("Risk Target Category", RISK_TARGET_CATEGORY_OPTIONS)
-    magnitude_of_risk = st.selectbox("Magnitude of Risk", MAGNITUDE_OPTIONS)
+with left:
+    st.subheader("📋 Requirement Details")
 
-with col2:
-    impact = st.selectbox("Impact", IMPACT_OPTIONS)
-    dimension_of_risk = st.selectbox("Dimension of Risk", DIMENSION_OPTIONS)
-    probability = st.slider("Probability (%)", 1, 100, 40)
-    affecting_modules = st.slider("Affecting No. of Modules", 1, 15, 3)
+    tab1, tab2, tab3 = st.tabs(["🏷️ Category & Type", "📈 Risk Profile", "💰 Cost & Schedule"])
 
-col3, col4 = st.columns(2)
-with col3:
-    fixing_duration = st.slider("Fixing Duration (Days)", 1, 30, 5)
-with col4:
-    fix_cost = st.slider("Fix Cost (% of Project)", 0, 30, 2)
+    with tab1:
+        project_category = st.selectbox("Project Category", PROJECT_CATEGORY_OPTIONS)
+        requirement_category = st.selectbox("Requirement Category", REQUIREMENT_CATEGORY_OPTIONS)
+        risk_target_category = st.selectbox("Risk Target Category", RISK_TARGET_CATEGORY_OPTIONS)
+        dimension_of_risk = st.selectbox("Dimension of Risk", DIMENSION_OPTIONS)
 
-priority = st.slider("Priority", 1, 100, 42)
+    with tab2:
+        magnitude_of_risk = st.selectbox("Magnitude of Risk", MAGNITUDE_OPTIONS)
+        impact = st.selectbox("Impact", IMPACT_OPTIONS)
+        probability = st.slider("Probability (%)", 1, 100, 40)
+        affecting_modules = st.slider("Affecting No. of Modules", 1, 15, 3)
 
-st.divider()
+    with tab3:
+        fixing_duration = st.slider("Fixing Duration (Days)", 1, 30, 5)
+        fix_cost = st.slider("Fix Cost (% of Project)", 0, 30, 2)
+        priority = st.slider("Priority", 1, 100, 42)
 
-if st.button("Predict Risk", type="primary", use_container_width=True):
+    predict_clicked = st.button("🔮 Predict Risk", type="primary", use_container_width=True)
+
+with right:
+    st.subheader("🎯 Prediction Result")
+    result_placeholder = st.container()
+
+if predict_clicked:
     input_row = {
         "project Category": project_category,
         "Requirement Category": requirement_category,
@@ -159,14 +143,69 @@ if st.button("Predict Risk", type="primary", use_container_width=True):
     predicted_label = "High Risk" if prob_high_risk >= 0.5 else "Low Risk"
     confidence = prob_high_risk if predicted_label == "High Risk" else 1 - prob_high_risk
 
-    st.subheader("Prediction Result")
-    if predicted_label == "High Risk":
-        st.error(f"🔴 **{predicted_label}** — confidence: {confidence:.1%}")
-    else:
-        st.success(f"🟢 **{predicted_label}** — confidence: {confidence:.1%}")
+    # --- simple driver explanation: compare numeric inputs to training means ---
+    num_inputs = {
+        "Probability": probability,
+        "Affecting Modules": affecting_modules,
+        "Fixing Duration": fixing_duration,
+        "Fix Cost": fix_cost,
+        "Priority": priority,
+    }
+    means_lookup = dict(zip(
+        ["Probability", "Affecting Modules", "Fixing Duration", "Fix Cost", "Priority"],
+        NUM_MEANS,
+    ))
+    above_mean = [
+        name for name, val in num_inputs.items()
+        if val > means_lookup[name]
+    ]
 
-    st.progress(prob_high_risk)
-    st.caption(f"Model output (probability of High Risk): {prob_high_risk:.4f}")
+    with result_placeholder:
+        if predicted_label == "High Risk":
+            st.error(f"🔴 **{predicted_label}**")
+        else:
+            st.success(f"🟢 **{predicted_label}**")
+
+        st.metric("Confidence", f"{confidence:.1%}")
+        st.progress(prob_high_risk)
+        st.caption(f"Raw model output (P of High Risk): {prob_high_risk:.4f}")
+
+        st.markdown("**Contributing factors**")
+        driver_bits = []
+        if impact in ("Catastrophic", "High"):
+            driver_bits.append(f"'{impact}' impact")
+        if magnitude_of_risk in ("Very High", "High"):
+            driver_bits.append(f"'{magnitude_of_risk}' magnitude")
+        if above_mean:
+            driver_bits.append(f"above-average {', '.join(above_mean).lower()}")
+        if driver_bits:
+            st.caption("Likely pushing the prediction: " + "; ".join(driver_bits) + ".")
+        else:
+            st.caption("Inputs are broadly near or below dataset averages.")
+
+    st.session_state.history.append({
+        "Project Category": project_category,
+        "Requirement Category": requirement_category,
+        "Impact": impact,
+        "Probability": probability,
+        "Prediction": predicted_label,
+        "Confidence": f"{confidence:.1%}",
+    })
+else:
+    with result_placeholder:
+        st.info("Fill in the requirement details and click **Predict Risk**.")
+
+if st.session_state.history:
+    st.divider()
+    st.subheader("🕘 Session History")
+    st.dataframe(
+        list(reversed(st.session_state.history)),
+        use_container_width=True,
+        hide_index=True,
+    )
+    if st.button("Clear history"):
+        st.session_state.history = []
+        st.rerun()
 
 st.divider()
 st.caption(
