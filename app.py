@@ -6,8 +6,8 @@ import streamlit as st
 # Page config
 # ---------------------------------------------------------------------
 st.set_page_config(
-    page_title="Software Project Risk Predictor",
-    page_icon="⚠️",
+    page_title="RiskScope — Software Requirement Risk Predictor",
+    page_icon="◆",
     layout="wide",
 )
 
@@ -29,36 +29,23 @@ CAT_COLS = config["cat_cols"]
 NUM_MEDIANS = np.array(config["num_medians"])
 NUM_MEANS = np.array(config["num_means"])
 NUM_SCALES = np.array(config["num_scales"])
-CAT_CATEGORIES = config["cat_categories"]  # dict: col -> list of categories
+CAT_CATEGORIES = config["cat_categories"]
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 def ann_predict(X):
-    """Forward pass: 8 sigmoid hidden neurons -> 1 sigmoid output."""
     hidden = sigmoid(X @ W1 + b1)
     output = sigmoid(hidden @ W2 + b2)
     return output.ravel()
 
 def preprocess(input_row: dict) -> np.ndarray:
-    """
-    Reproduces the training-time ColumnTransformer manually:
-      1. Numeric columns: median-impute (n/a here, all fields filled by UI),
-         then standard-scale using the training mean/scale.
-      2. Categorical columns: one-hot encode using the training category
-         order (unseen categories are simply all-zero, matching
-         OneHotEncoder(handle_unknown="ignore")).
-    Column order matches training: numeric block first, then categorical
-    block, in the same column order used when the ColumnTransformer was fit.
-    """
-    # --- numeric block ---
     num_values = np.array([
         input_row[col] if input_row[col] is not None else median
         for col, median in zip(NUM_COLS, NUM_MEDIANS)
     ], dtype=float)
     num_scaled = (num_values - NUM_MEANS) / NUM_SCALES
 
-    # --- categorical block (one-hot) ---
     cat_encoded = []
     for col in CAT_COLS:
         categories = CAT_CATEGORIES[col]
@@ -69,10 +56,6 @@ def preprocess(input_row: dict) -> np.ndarray:
     full_vector = np.concatenate([num_scaled, np.array(cat_encoded)])
     return full_vector.reshape(1, -1)
 
-# ---------------------------------------------------------------------
-# Dropdown option lists (pulled directly from the training config,
-# so they always match what the model was actually trained on)
-# ---------------------------------------------------------------------
 PROJECT_CATEGORY_OPTIONS = CAT_CATEGORIES["project Category"]
 REQUIREMENT_CATEGORY_OPTIONS = CAT_CATEGORIES["Requirement Category"]
 RISK_TARGET_CATEGORY_OPTIONS = CAT_CATEGORIES["Risk Target Category"]
@@ -80,14 +63,254 @@ MAGNITUDE_OPTIONS = CAT_CATEGORIES["Magnitude of Risk"]
 IMPACT_OPTIONS = CAT_CATEGORIES["Impact"]
 DIMENSION_OPTIONS = CAT_CATEGORIES["Dimension of Risk"]
 
-# ---------------------------------------------------------------------
-# UI
-# ---------------------------------------------------------------------
-st.title("⚠️ Software Project Risk Predictor")
-st.write(
-    "Predicts whether a software requirement carries **Low** or **High** "
-    "risk, using a feed-forward back-propagation ANN "
-    "(8 sigmoid hidden neurons, 1 sigmoid output, trained with SGD)."
+# =======================================================================
+# DESIGN SYSTEM — mission-control / instrument-panel aesthetic
+# =======================================================================
+CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --bg-deep: #0B1220;
+    --bg-panel: #131B2E;
+    --bg-panel-alt: #0F1729;
+    --border: #223049;
+    --border-bright: #33465F;
+    --amber: #FFB020;
+    --amber-dim: #7A5B22;
+    --teal: #2DD4BF;
+    --teal-dim: #1C5F57;
+    --text-primary: #E6EDF7;
+    --text-muted: #7C8AA5;
+    --text-faint: #4C5A75;
+}
+
+html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
+
+/* Kill Streamlit chrome */
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding-top: 1.5rem; max-width: 1200px; }
+
+/* ---------- Header strip ---------- */
+.rs-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 14px;
+    margin-bottom: 6px;
+}
+.rs-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 2rem;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    margin: 0;
+}
+.rs-title span { color: var(--amber); }
+.rs-subtitle {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-faint);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 4px;
+}
+.rs-status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--teal);
+    letter-spacing: 0.05em;
+    text-align: right;
+}
+.rs-status .dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--teal);
+    margin-right: 6px;
+    box-shadow: 0 0 6px var(--teal);
+    animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ---------- Eyebrow labels ---------- */
+.rs-eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 2px;
+    border-left: 2px solid var(--amber);
+    padding-left: 8px;
+}
+
+/* ---------- Panels ---------- */
+.rs-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+}
+
+/* Tabs restyle */
+.stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid var(--border); }
+.stTabs [data-baseweb="tab"] {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    background: transparent;
+    border-radius: 4px 4px 0 0;
+}
+.stTabs [aria-selected="true"] {
+    color: var(--amber) !important;
+    border-bottom: 2px solid var(--amber) !important;
+}
+
+/* Buttons */
+.stButton > button {
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 0.78rem;
+    background: var(--amber);
+    color: #1A1206;
+    border: none;
+    border-radius: 4px;
+    font-weight: 600;
+    transition: box-shadow 0.15s ease;
+}
+.stButton > button:hover {
+    box-shadow: 0 0 0 3px var(--amber-dim);
+    color: #1A1206;
+}
+
+/* Result readout card */
+.rs-result-card {
+    background: var(--bg-panel-alt);
+    border: 1px solid var(--border-bright);
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+}
+.rs-verdict {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 1.6rem;
+    letter-spacing: -0.01em;
+    margin: 10px 0 2px 0;
+}
+.rs-verdict.high { color: var(--amber); }
+.rs-verdict.low { color: var(--teal); }
+.rs-led-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.rs-led {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+}
+.rs-led.high { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 1.4s infinite; }
+.rs-led.low { background: var(--teal); box-shadow: 0 0 8px var(--teal); animation: pulse 1.4s infinite; }
+
+.rs-readout {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-top: 14px;
+}
+.rs-readout b { color: var(--text-primary); }
+
+.rs-factors {
+    margin-top: 16px;
+    text-align: left;
+}
+.rs-factor-pill {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-bright);
+    color: var(--text-muted);
+    padding: 3px 9px;
+    border-radius: 20px;
+    margin: 3px 4px 0 0;
+}
+
+.rs-idle {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--text-faint);
+    text-align: center;
+    padding: 40px 10px;
+}
+
+/* dataframe wrapper spacing */
+[data-testid="stDataFrame"] { border: 1px solid var(--border); border-radius: 6px; }
+
+.rs-footer {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text-faint);
+    letter-spacing: 0.03em;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+    margin-top: 8px;
+}
+</style>
+"""
+st.markdown(CSS, unsafe_allow_html=True)
+
+
+def render_gauge(prob_high_risk: float) -> str:
+    """Semicircular instrument-style gauge with a sweeping needle."""
+    angle_deg = 180 * prob_high_risk  # 0 = far left (safe), 180 = far right (danger)
+    angle_rad = np.radians(180 - angle_deg)
+    cx, cy, r = 150, 150, 120
+    needle_x = cx + r * 0.82 * np.cos(angle_rad)
+    needle_y = cy - r * 0.82 * np.sin(angle_rad)
+    needle_color = "#FFB020" if prob_high_risk >= 0.5 else "#2DD4BF"
+
+    return f"""
+    <svg viewBox="0 0 300 175" width="100%" style="max-width:280px;">
+        <path d="M 30 150 A 120 120 0 0 1 150 30" fill="none" stroke="#2DD4BF" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
+        <path d="M 150 30 A 120 120 0 0 1 270 150" fill="none" stroke="#FFB020" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
+        <line x1="{cx}" y1="{cy}" x2="{needle_x:.1f}" y2="{needle_y:.1f}"
+              stroke="{needle_color}" stroke-width="3.5" stroke-linecap="round"/>
+        <circle cx="{cx}" cy="{cy}" r="6" fill="{needle_color}" />
+        <text x="30" y="170" font-family="IBM Plex Mono" font-size="10" fill="#7C8AA5">LOW</text>
+        <text x="245" y="170" font-family="IBM Plex Mono" font-size="10" fill="#7C8AA5">HIGH</text>
+        <text x="150" y="105" font-family="IBM Plex Mono" font-size="26" font-weight="600"
+              fill="#E6EDF7" text-anchor="middle">{prob_high_risk*100:.1f}%</text>
+    </svg>
+    """
+
+
+# =======================================================================
+# HEADER
+# =======================================================================
+st.markdown(
+    """
+    <div class="rs-header">
+        <div>
+            <p class="rs-title">Risk<span>Scope</span></p>
+            <p class="rs-subtitle">Software Requirement Risk Instrument · ANN-01</p>
+        </div>
+        <div class="rs-status"><span class="dot"></span>MODEL ONLINE</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 if "history" not in st.session_state:
@@ -95,10 +318,13 @@ if "history" not in st.session_state:
 
 left, right = st.columns([1.3, 1], gap="large")
 
+# =======================================================================
+# LEFT: INPUT INSTRUMENTS
+# =======================================================================
 with left:
-    st.subheader("📋 Requirement Details")
+    st.markdown('<p class="rs-eyebrow">Requirement Telemetry</p>', unsafe_allow_html=True)
 
-    tab1, tab2, tab3 = st.tabs(["🏷️ Category & Type", "📈 Risk Profile", "💰 Cost & Schedule"])
+    tab1, tab2, tab3 = st.tabs(["CATEGORY", "RISK PROFILE", "COST / SCHEDULE"])
 
     with tab1:
         project_category = st.selectbox("Project Category", PROJECT_CATEGORY_OPTIONS)
@@ -117,10 +343,13 @@ with left:
         fix_cost = st.slider("Fix Cost (% of Project)", 0, 30, 2)
         priority = st.slider("Priority", 1, 100, 42)
 
-    predict_clicked = st.button("🔮 Predict Risk", type="primary", use_container_width=True)
+    predict_clicked = st.button("RUN PREDICTION", type="primary", use_container_width=True)
 
+# =======================================================================
+# RIGHT: RESULT READOUT
+# =======================================================================
 with right:
-    st.subheader("🎯 Prediction Result")
+    st.markdown('<p class="rs-eyebrow">Risk Verdict</p>', unsafe_allow_html=True)
     result_placeholder = st.container()
 
 if predict_clicked:
@@ -140,48 +369,48 @@ if predict_clicked:
 
     X = preprocess(input_row)
     prob_high_risk = float(ann_predict(X)[0])
-    predicted_label = "High Risk" if prob_high_risk >= 0.5 else "Low Risk"
-    confidence = prob_high_risk if predicted_label == "High Risk" else 1 - prob_high_risk
+    predicted_label = "HIGH RISK" if prob_high_risk >= 0.5 else "LOW RISK"
+    css_class = "high" if prob_high_risk >= 0.5 else "low"
+    confidence = prob_high_risk if prob_high_risk >= 0.5 else 1 - prob_high_risk
 
-    # --- simple driver explanation: compare numeric inputs to training means ---
     num_inputs = {
-        "Probability": probability,
-        "Affecting Modules": affecting_modules,
-        "Fixing Duration": fixing_duration,
-        "Fix Cost": fix_cost,
-        "Priority": priority,
+        "probability": probability,
+        "module count": affecting_modules,
+        "fixing duration": fixing_duration,
+        "fix cost": fix_cost,
+        "priority": priority,
     }
     means_lookup = dict(zip(
-        ["Probability", "Affecting Modules", "Fixing Duration", "Fix Cost", "Priority"],
+        ["probability", "module count", "fixing duration", "fix cost", "priority"],
         NUM_MEANS,
     ))
-    above_mean = [
-        name for name, val in num_inputs.items()
-        if val > means_lookup[name]
-    ]
+    above_mean = [name for name, val in num_inputs.items() if val > means_lookup[name]]
+
+    factor_pills = []
+    if impact in ("Catastrophic", "High"):
+        factor_pills.append(f"{impact.upper()} IMPACT")
+    if magnitude_of_risk in ("Very High", "High"):
+        factor_pills.append(f"{magnitude_of_risk.upper()} MAGNITUDE")
+    for name in above_mean:
+        factor_pills.append(f"ABOVE-AVG {name.upper()}")
+    if not factor_pills:
+        factor_pills.append("NEAR BASELINE")
+
+    pills_html = "".join(f'<span class="rs-factor-pill">{p}</span>' for p in factor_pills)
 
     with result_placeholder:
-        if predicted_label == "High Risk":
-            st.error(f"🔴 **{predicted_label}**")
-        else:
-            st.success(f"🟢 **{predicted_label}**")
-
-        st.metric("Confidence", f"{confidence:.1%}")
-        st.progress(prob_high_risk)
-        st.caption(f"Raw model output (P of High Risk): {prob_high_risk:.4f}")
-
-        st.markdown("**Contributing factors**")
-        driver_bits = []
-        if impact in ("Catastrophic", "High"):
-            driver_bits.append(f"'{impact}' impact")
-        if magnitude_of_risk in ("Very High", "High"):
-            driver_bits.append(f"'{magnitude_of_risk}' magnitude")
-        if above_mean:
-            driver_bits.append(f"above-average {', '.join(above_mean).lower()}")
-        if driver_bits:
-            st.caption("Likely pushing the prediction: " + "; ".join(driver_bits) + ".")
-        else:
-            st.caption("Inputs are broadly near or below dataset averages.")
+        st.markdown(
+            f"""
+            <div class="rs-result-card">
+                {render_gauge(prob_high_risk)}
+                <div class="rs-verdict {css_class}">{predicted_label}</div>
+                <div class="rs-led-row"><span class="rs-led {css_class}"></span>CONFIDENCE {confidence*100:.1f}%</div>
+                <div class="rs-readout">P(high risk) = <b>{prob_high_risk:.4f}</b></div>
+                <div class="rs-factors">{pills_html}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.session_state.history.append({
         "Project Category": project_category,
@@ -193,23 +422,33 @@ if predict_clicked:
     })
 else:
     with result_placeholder:
-        st.info("Fill in the requirement details and click **Predict Risk**.")
+        st.markdown(
+            '<div class="rs-result-card"><p class="rs-idle">'
+            'AWAITING INPUT ―<br>configure the requirement telemetry, then run the prediction.'
+            '</p></div>',
+            unsafe_allow_html=True,
+        )
 
+# =======================================================================
+# HISTORY LOG
+# =======================================================================
 if st.session_state.history:
-    st.divider()
-    st.subheader("🕘 Session History")
+    st.markdown('<p class="rs-eyebrow" style="margin-top: 18px;">Session Log</p>', unsafe_allow_html=True)
     st.dataframe(
         list(reversed(st.session_state.history)),
         use_container_width=True,
         hide_index=True,
     )
-    if st.button("Clear history"):
+    if st.button("CLEAR LOG"):
         st.session_state.history = []
         st.rerun()
 
-st.divider()
-st.caption(
-    "Model: Feed-forward ANN · 60 input features · 8 sigmoid hidden neurons · "
-    "1 sigmoid output · SGD (lr=0.6) · Trained on the Software Requirement "
-    "Risk Prediction Dataset (Shaukat, Naseem & Zubair, 2018)."
+st.markdown(
+    """
+    <div class="rs-footer">
+        MODEL: FEED-FORWARD ANN · 60 INPUT FEATURES · 8 SIGMOID HIDDEN UNITS · 1 SIGMOID OUTPUT ·
+        SGD (LR=0.6) · TRAINED ON THE SOFTWARE REQUIREMENT RISK PREDICTION DATASET (SHAUKAT, NASEEM &amp; ZUBAIR, 2018)
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
