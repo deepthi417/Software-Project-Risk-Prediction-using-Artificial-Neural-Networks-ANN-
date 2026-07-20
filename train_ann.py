@@ -1,23 +1,3 @@
-"""
-Software Project Risk Prediction using ANN (no SVM)
------------------------------------------------------
-Dataset : Software Requirement Risk Prediction Dataset
-          (Shaukat, Naseem & Zubair, 2018) - Zenodo DOI 10.5281/zenodo.1209601
-          299 real-world requirement risk cases, 12 attributes + Risk Level target
-
-Architecture (per project spec):
-  Input layer  : 64 nodes  (after cleaning + one-hot encoding)
-  Hidden layer : 8 neurons, sigmoid activation
-  Output layer : 1 neuron,  sigmoid activation
-  Learning rate: 0.6
-  Bias         : 0.4 (initial bias on hidden + output layers)
-  Optimizer    : SGD (plain backprop)
-
-Outputs (for stage-2 Streamlit deployment):
-  - model.keras        (trained ANN)
-  - preprocessor.pkl   (fitted ColumnTransformer for inference-time encoding)
-"""
-
 import pickle
 import numpy as np
 import pandas as pd
