@@ -15,6 +15,15 @@ import json
 import numpy as np
 import streamlit as st
 
+def html_block(s: str) -> str:
+    """Collapse a multi-line HTML template into a single line with no
+    embedded newlines or leading whitespace. This sidesteps two separate
+    Markdown/HTML-block quirks: (1) 4+ space indentation being read as a
+    literal code block, and (2) multi-line raw-HTML blocks that mix
+    element types (e.g. <svg> followed by <div>s) sometimes only
+    rendering the first element and showing the rest as literal text."""
+    return " ".join(line.strip() for line in s.strip().splitlines() if line.strip())
+
 # ---------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------
@@ -93,6 +102,10 @@ CSS = """
     --amber-dim: #7A5B22;
     --teal: #2DD4BF;
     --teal-dim: #1C5F57;
+    --violet: #A78BFA;
+    --violet-dim: #4C3B82;
+    --rose: #FB7185;
+    --rose-dim: #7A2F3D;
     --text-primary: #E6EDF7;
     --text-muted: #7C8AA5;
     --text-faint: #4C5A75;
@@ -100,13 +113,16 @@ CSS = """
 
 html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
 
-/* Ambient background texture — faint grid, mission-control feel */
+/* Ambient background texture — faint grid + soft color glows */
 .stApp {
     background-color: var(--bg-deep);
     background-image:
+        radial-gradient(ellipse 900px 500px at 85% -5%, rgba(255,176,32,0.10), transparent 60%),
+        radial-gradient(ellipse 800px 500px at -5% 40%, rgba(167,139,250,0.08), transparent 60%),
+        radial-gradient(ellipse 700px 450px at 100% 95%, rgba(45,212,191,0.07), transparent 60%),
         linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 34px 34px;
+    background-size: auto, auto, auto, 34px 34px, 34px 34px;
 }
 
 /* Kill Streamlit chrome */
@@ -145,7 +161,12 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     margin: 0;
     text-shadow: 0 0 24px rgba(255,176,32,0.12);
 }
-.rs-title span { color: var(--amber); }
+.rs-title span {
+    background: linear-gradient(100deg, var(--amber), var(--rose) 60%, var(--violet));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
 .rs-subtitle {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 0.72rem;
@@ -183,6 +204,9 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     border-left: 2px solid var(--amber);
     padding-left: 8px;
 }
+.rs-eyebrow.violet { color: var(--violet); border-left-color: var(--violet); }
+.rs-eyebrow.teal { color: var(--teal); border-left-color: var(--teal); }
+.rs-eyebrow.rose { color: var(--rose); border-left-color: var(--rose); }
 
 /* ---------- Panels ---------- */
 .rs-panel {
@@ -209,6 +233,18 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     color: var(--amber) !important;
     border-bottom: 2px solid var(--amber) !important;
 }
+.stTabs [data-baseweb="tab-list"] button:nth-child(1)[aria-selected="true"] {
+    color: var(--violet) !important;
+    border-bottom-color: var(--violet) !important;
+}
+.stTabs [data-baseweb="tab-list"] button:nth-child(2)[aria-selected="true"] {
+    color: var(--amber) !important;
+    border-bottom-color: var(--amber) !important;
+}
+.stTabs [data-baseweb="tab-list"] button:nth-child(3)[aria-selected="true"] {
+    color: var(--teal) !important;
+    border-bottom-color: var(--teal) !important;
+}
 
 /* Buttons */
 .stButton > button {
@@ -216,13 +252,14 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     letter-spacing: 0.05em;
     text-transform: uppercase;
     font-size: 0.78rem;
-    background: var(--amber);
+    background: linear-gradient(95deg, var(--amber), var(--rose));
     color: #1A1206;
     border: none;
     border-radius: 4px;
     font-weight: 600;
-    transition: box-shadow 0.15s ease;
+    transition: box-shadow 0.15s ease, transform 0.1s ease;
 }
+.stButton > button:active { transform: scale(0.98); }
 .stButton > button:hover {
     box-shadow: 0 0 0 3px var(--amber-dim);
     color: #1A1206;
@@ -292,6 +329,12 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     border-color: var(--amber);
     color: var(--text-primary);
 }
+.rs-factor-pill.rose { border-color: var(--rose-dim); color: var(--rose); }
+.rs-factor-pill.violet { border-color: var(--violet-dim); color: var(--violet); }
+.rs-factor-pill.teal { border-color: var(--teal-dim); color: var(--teal); }
+.rs-factor-pill.rose:hover { border-color: var(--rose); }
+.rs-factor-pill.violet:hover { border-color: var(--violet); }
+.rs-factor-pill.teal:hover { border-color: var(--teal); }
 
 .rs-idle {
     font-family: 'IBM Plex Mono', monospace;
@@ -303,6 +346,45 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
 
 /* dataframe wrapper spacing */
 [data-testid="stDataFrame"] { border: 1px solid var(--border); border-radius: 6px; }
+
+/* Custom session log table */
+.rs-log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+.rs-log-table th {
+    text-align: left;
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    background: var(--bg-panel-alt);
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+}
+.rs-log-table td {
+    padding: 9px 12px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+}
+.rs-log-table tr:last-child td { border-bottom: none; }
+.rs-log-table tr:hover td { background: rgba(255,255,255,0.02); color: var(--text-primary); }
+.rs-badge {
+    display: inline-block;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+.rs-badge.high { background: rgba(255,176,32,0.15); color: var(--amber); }
+.rs-badge.low { background: rgba(45,212,191,0.15); color: var(--teal); }
 
 .rs-footer {
     font-family: 'IBM Plex Mono', monospace;
@@ -342,34 +424,36 @@ def render_gauge(prob_high_risk: float) -> str:
     needle_y = cy - r * 0.82 * np.sin(angle_rad)
     needle_color = "#FFB020" if prob_high_risk >= 0.5 else "#2DD4BF"
 
-    return f"""
-    <svg viewBox="0 0 300 175" width="100%" style="max-width:280px;">
-        <path d="M 30 150 A 120 120 0 0 1 150 30" fill="none" stroke="#2DD4BF" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
-        <path d="M 150 30 A 120 120 0 0 1 270 150" fill="none" stroke="#FFB020" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
-        <line x1="{cx}" y1="{cy}" x2="{needle_x:.1f}" y2="{needle_y:.1f}"
-              stroke="{needle_color}" stroke-width="3.5" stroke-linecap="round"/>
-        <circle cx="{cx}" cy="{cy}" r="6" fill="{needle_color}" />
-        <text x="30" y="170" font-family="IBM Plex Mono" font-size="10" fill="#7C8AA5">LOW</text>
-        <text x="245" y="170" font-family="IBM Plex Mono" font-size="10" fill="#7C8AA5">HIGH</text>
-        <text x="150" y="105" font-family="IBM Plex Mono" font-size="26" font-weight="600"
-              fill="#E6EDF7" text-anchor="middle">{prob_high_risk*100:.1f}%</text>
-    </svg>
-    """
+    return html_block(f"""
+        <svg viewBox="0 0 300 175" width="100%" style="max-width:280px;">
+            <path d="M 30 150 A 120 120 0 0 1 150 30" fill="none" stroke="#2DD4BF" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
+            <path d="M 150 30 A 120 120 0 0 1 270 150" fill="none" stroke="#FFB020" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
+            <line x1="{cx}" y1="{cy}" x2="{needle_x:.1f}" y2="{needle_y:.1f}"
+                  stroke="{needle_color}" stroke-width="3.5" stroke-linecap="round"/>
+            <circle cx="{cx}" cy="{cy}" r="6" fill="{needle_color}" />
+            <text x="30" y="170" font-family="IBM Plex Mono" font-size="10" fill="#7C8AA5">LOW</text>
+            <text x="245" y="170" font-family="IBM Plex Mono" font-size="10" fill="#7C8AA5">HIGH</text>
+            <text x="150" y="105" font-family="IBM Plex Mono" font-size="26" font-weight="600"
+                  fill="#E6EDF7" text-anchor="middle">{prob_high_risk*100:.1f}%</text>
+        </svg>
+        """)
 
 
 # =======================================================================
 # HEADER
 # =======================================================================
 st.markdown(
-    """
-    <div class="rs-header">
-        <div>
-            <p class="rs-title">Risk<span>Scope</span></p>
-            <p class="rs-subtitle">Software Requirement Risk Instrument · ANN-01</p>
+    html_block(
+        """
+        <div class="rs-header">
+            <div>
+                <p class="rs-title">Risk<span>Scope</span></p>
+                <p class="rs-subtitle">Software Requirement Risk Instrument · ANN-01</p>
+            </div>
+            <div class="rs-status"><span class="dot"></span>MODEL ONLINE</div>
         </div>
-        <div class="rs-status"><span class="dot"></span>MODEL ONLINE</div>
-    </div>
-    """,
+        """
+    ),
     unsafe_allow_html=True,
 )
 
@@ -382,7 +466,7 @@ left, right = st.columns([1.3, 1], gap="large")
 # LEFT: INPUT INSTRUMENTS
 # =======================================================================
 with left:
-    st.markdown('<p class="rs-eyebrow">Requirement Telemetry</p>', unsafe_allow_html=True)
+    st.markdown('<p class="rs-eyebrow violet">Requirement Telemetry</p>', unsafe_allow_html=True)
 
     tab1, tab2, tab3 = st.tabs(["CATEGORY", "RISK PROFILE", "COST / SCHEDULE"])
 
@@ -409,7 +493,7 @@ with left:
 # RIGHT: RESULT READOUT
 # =======================================================================
 with right:
-    st.markdown('<p class="rs-eyebrow">Risk Verdict</p>', unsafe_allow_html=True)
+    st.markdown('<p class="rs-eyebrow rose">Risk Verdict</p>', unsafe_allow_html=True)
     result_placeholder = st.container()
 
 if predict_clicked:
@@ -448,27 +532,31 @@ if predict_clicked:
 
     factor_pills = []
     if impact in ("Catastrophic", "High"):
-        factor_pills.append(f"{impact.upper()} IMPACT")
+        factor_pills.append((f"{impact.upper()} IMPACT", "rose"))
     if magnitude_of_risk in ("Very High", "High"):
-        factor_pills.append(f"{magnitude_of_risk.upper()} MAGNITUDE")
+        factor_pills.append((f"{magnitude_of_risk.upper()} MAGNITUDE", "violet"))
     for name in above_mean:
-        factor_pills.append(f"ABOVE-AVG {name.upper()}")
+        factor_pills.append((f"ABOVE-AVG {name.upper()}", "teal"))
     if not factor_pills:
-        factor_pills.append("NEAR BASELINE")
+        factor_pills.append(("NEAR BASELINE", "muted"))
 
-    pills_html = "".join(f'<span class="rs-factor-pill">{p}</span>' for p in factor_pills)
+    pills_html = "".join(
+        f'<span class="rs-factor-pill {color}">{text}</span>' for text, color in factor_pills
+    )
 
     with result_placeholder:
         st.markdown(
-            f"""
-            <div class="rs-result-card">
-                {render_gauge(prob_high_risk)}
-                <div class="rs-verdict {css_class}">{predicted_label}</div>
-                <div class="rs-led-row"><span class="rs-led {css_class}"></span>CONFIDENCE {confidence*100:.1f}%</div>
-                <div class="rs-readout">P(high risk) = <b>{prob_high_risk:.4f}</b></div>
-                <div class="rs-factors">{pills_html}</div>
-            </div>
-            """,
+            html_block(
+                f"""
+                <div class="rs-result-card">
+                    {render_gauge(prob_high_risk)}
+                    <div class="rs-verdict {css_class}">{predicted_label}</div>
+                    <div class="rs-led-row"><span class="rs-led {css_class}"></span>CONFIDENCE {confidence*100:.1f}%</div>
+                    <div class="rs-readout">P(high risk) = <b>{prob_high_risk:.4f}</b></div>
+                    <div class="rs-factors">{pills_html}</div>
+                </div>
+                """
+            ),
             unsafe_allow_html=True,
         )
 
@@ -493,23 +581,45 @@ else:
 # HISTORY LOG
 # =======================================================================
 if st.session_state.history:
-    st.markdown('<p class="rs-eyebrow" style="margin-top: 18px;">Session Log</p>', unsafe_allow_html=True)
-    st.dataframe(
-        list(reversed(st.session_state.history)),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.markdown('<p class="rs-eyebrow teal" style="margin-top: 18px;">Session Log</p>', unsafe_allow_html=True)
+
+    rows_html = ""
+    for row in reversed(st.session_state.history):
+        badge_class = "high" if row["Prediction"] == "HIGH RISK" else "low"
+        rows_html += (
+            "<tr>"
+            f"<td>{row['Project Category']}</td>"
+            f"<td>{row['Requirement Category']}</td>"
+            f"<td>{row['Impact']}</td>"
+            f"<td>{row['Probability']}%</td>"
+            f"<td><span class='rs-badge {badge_class}'>{row['Prediction']}</span></td>"
+            f"<td>{row['Confidence']}</td>"
+            "</tr>"
+        )
+
+    table_html = html_block(f"""
+        <table class="rs-log-table">
+            <thead><tr>
+                <th>Project Category</th><th>Requirement Category</th><th>Impact</th>
+                <th>Probability</th><th>Prediction</th><th>Confidence</th>
+            </tr></thead>
+            <tbody>{rows_html}</tbody>
+        </table>
+        """)
+    st.markdown(table_html, unsafe_allow_html=True)
     if st.button("CLEAR LOG"):
         st.session_state.history = []
         st.rerun()
 
 st.markdown(
-    """
-    <div class="rs-footer">
-        <span>MODEL: FEED-FORWARD ANN · 60 INPUT FEATURES · 8 SIGMOID HIDDEN UNITS · 1 SIGMOID OUTPUT ·
-        SGD (LR=0.6) · TRAINED ON THE SOFTWARE REQUIREMENT RISK PREDICTION DATASET (SHAUKAT, NASEEM &amp; ZUBAIR, 2018)</span>
-        <span class="rs-credit">Created by <b>Deepthi</b> · <a href="https://github.com/deepthi417" target="_blank">github.com/deepthi417</a></span>
-    </div>
-    """,
+    html_block(
+        """
+        <div class="rs-footer">
+            <span>MODEL: FEED-FORWARD ANN · 60 INPUT FEATURES · 8 SIGMOID HIDDEN UNITS · 1 SIGMOID OUTPUT ·
+            SGD (LR=0.6) · TRAINED ON THE SOFTWARE REQUIREMENT RISK PREDICTION DATASET (SHAUKAT, NASEEM &amp; ZUBAIR, 2018)</span>
+            <span class="rs-credit">Created by <b>Deepthi</b> · <a href="https://github.com/deepthi417" target="_blank">github.com/deepthi417</a></span>
+        </div>
+        """
+    ),
     unsafe_allow_html=True,
 )
