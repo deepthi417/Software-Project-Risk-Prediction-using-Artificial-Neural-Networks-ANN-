@@ -1,16 +1,3 @@
-"""
-Streamlit App: Software Project Risk Predictor (ANN)
--------------------------------------------------------
-Predicts whether a software requirement carries Low or High risk.
-
-Zero scikit-learn / TensorFlow / pickle dependency at inference time --
-preprocessing and the ANN forward pass are implemented in plain NumPy
-(see preprocess_config.json and ann_weights.npz).
-
-Run locally:      streamlit run app.py
-Deploy:            push to GitHub, connect at https://share.streamlit.io
-"""
-
 import json
 import numpy as np
 import streamlit as st
