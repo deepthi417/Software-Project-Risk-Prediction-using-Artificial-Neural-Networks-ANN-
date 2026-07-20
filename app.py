@@ -1,3 +1,16 @@
+"""
+Streamlit App: Software Project Risk Predictor (ANN)
+-------------------------------------------------------
+Predicts whether a software requirement carries Low or High risk.
+
+Zero scikit-learn / TensorFlow / pickle dependency at inference time --
+preprocessing and the ANN forward pass are implemented in plain NumPy
+(see preprocess_config.json and ann_weights.npz).
+
+Run locally:      streamlit run app.py
+Deploy:            push to GitHub, connect at https://share.streamlit.io
+"""
+
 import json
 import numpy as np
 import streamlit as st
@@ -87,6 +100,15 @@ CSS = """
 
 html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
 
+/* Ambient background texture — faint grid, mission-control feel */
+.stApp {
+    background-color: var(--bg-deep);
+    background-image:
+        linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 34px 34px;
+}
+
 /* Kill Streamlit chrome */
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding-top: 1.5rem; max-width: 1200px; }
@@ -99,6 +121,20 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     border-bottom: 1px solid var(--border);
     padding-bottom: 14px;
     margin-bottom: 6px;
+    position: relative;
+}
+.rs-header::after {
+    content: "";
+    position: absolute;
+    bottom: -1px; left: 0;
+    height: 1px;
+    width: 140px;
+    background: linear-gradient(90deg, var(--amber), transparent);
+    animation: scan 3.5s ease-in-out infinite;
+}
+@keyframes scan {
+    0%, 100% { transform: translateX(0); opacity: 0.9; }
+    50% { transform: translateX(calc(100% + 200px)); opacity: 0.4; }
 }
 .rs-title {
     font-family: 'Space Grotesk', sans-serif;
@@ -107,6 +143,7 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     color: var(--text-primary);
     letter-spacing: -0.02em;
     margin: 0;
+    text-shadow: 0 0 24px rgba(255,176,32,0.12);
 }
 .rs-title span { color: var(--amber); }
 .rs-subtitle {
@@ -154,7 +191,9 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     border-radius: 6px;
     padding: 18px 20px;
     margin-bottom: 14px;
+    transition: border-color 0.2s ease;
 }
+.rs-panel:hover { border-color: var(--border-bright); }
 
 /* Tabs restyle */
 .stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid var(--border); }
@@ -196,6 +235,7 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     border-radius: 8px;
     padding: 24px;
     text-align: center;
+    box-shadow: 0 0 40px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03);
 }
 .rs-verdict {
     font-family: 'Space Grotesk', sans-serif;
@@ -246,6 +286,11 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     padding: 3px 9px;
     border-radius: 20px;
     margin: 3px 4px 0 0;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+.rs-factor-pill:hover {
+    border-color: var(--amber);
+    color: var(--text-primary);
 }
 
 .rs-idle {
@@ -267,7 +312,22 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     border-top: 1px solid var(--border);
     padding-top: 12px;
     margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
 }
+.rs-credit {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+.rs-credit b { color: var(--amber); font-weight: 600; }
+.rs-credit a { color: var(--teal); text-decoration: none; }
+.rs-credit a:hover { text-decoration: underline; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -446,8 +506,9 @@ if st.session_state.history:
 st.markdown(
     """
     <div class="rs-footer">
-        MODEL: FEED-FORWARD ANN · 60 INPUT FEATURES · 8 SIGMOID HIDDEN UNITS · 1 SIGMOID OUTPUT ·
-        SGD (LR=0.6) · TRAINED ON THE SOFTWARE REQUIREMENT RISK PREDICTION DATASET (SHAUKAT, NASEEM &amp; ZUBAIR, 2018)
+        <span>MODEL: FEED-FORWARD ANN · 60 INPUT FEATURES · 8 SIGMOID HIDDEN UNITS · 1 SIGMOID OUTPUT ·
+        SGD (LR=0.6) · TRAINED ON THE SOFTWARE REQUIREMENT RISK PREDICTION DATASET (SHAUKAT, NASEEM &amp; ZUBAIR, 2018)</span>
+        <span class="rs-credit">Created by <b>Deepthi</b> · <a href="https://github.com/deepthi417" target="_blank">github.com/deepthi417</a></span>
     </div>
     """,
     unsafe_allow_html=True,
